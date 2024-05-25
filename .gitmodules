@@ -1,0 +1,3 @@
+[submodule "deps/libvaxis"]
+	path = deps/libvaxis
+	url = git@github.com:Cloudef/libvaxis.git

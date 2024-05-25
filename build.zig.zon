@@ -1,0 +1,14 @@
+.{
+    .name = "spurdo",
+    .version = "0.0.0",
+    .dependencies = .{
+        .zignet = .{ .path = "deps/zignet" },
+        .vaxis = .{ .path = "deps/libvaxis" },
+    },
+    .paths = .{
+        "src",
+        "LICENSE",
+        "build.zig",
+        "build.zig.zon",
+    },
+}
