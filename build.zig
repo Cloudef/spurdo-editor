@@ -4,10 +4,20 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zignet = b.dependency("zignet", .{
+    const ztd = b.dependency("ztd", .{});
+
+    const aio = b.dependency("aio", .{
         .target = target,
         .optimize = optimize,
     });
+
+    const lsp = b.dependency("lsp-codegen", .{
+        .target = target,
+        .optimize = optimize,
+        .@"meta-model" = @as([]const u8, "lsp.json"),
+    });
+
+    const datetime = b.dependency("datetime", .{});
 
     const vaxis = b.dependency("vaxis", .{
         .target = target,
@@ -26,9 +36,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     b.installArtifact(exe);
-    exe.root_module.addImport("zignet", zignet.module("zignet"));
+    exe.root_module.addImport("ztd", ztd.module("ztd"));
+    exe.root_module.addImport("aio", aio.module("aio"));
+    exe.root_module.addImport("coro", aio.module("coro"));
     exe.root_module.addImport("vaxis", vaxis.module("vaxis"));
     exe.root_module.addImport("grapheme", zg.module("grapheme"));
+    exe.root_module.addImport("DisplayWidth", zg.module("DisplayWidth"));
+    exe.root_module.addImport("lsp-generated", lsp.module("lsp"));
+    exe.root_module.addImport("datetime", datetime.module("datetime"));
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

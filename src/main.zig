@@ -1,22 +1,99 @@
 const std = @import("std");
+const ztd = @import("ztd");
+const coro = @import("coro");
 const vaxis = @import("vaxis");
-const Spurdo = @import("widgets/Spurdo.zig");
+const datetime = @import("datetime");
+const Spurdo = @import("spurdo/Spurdo.zig");
+const TextView = vaxis.widgets.TextView;
 const log = std.log.scoped(.main);
 
-pub const std_options: std.Options = .{
-    .logFn = log_cb,
+pub const aio_coro_options: coro.Options = .{
+    .error_handler = (struct {
+        fn handler(err: anyerror) void {
+            const scope = std.log.scoped(.coro);
+            scope.err("error: {s}", .{@errorName(err)});
+        }
+    }).handler,
 };
 
-var global_mutex: std.Thread.Mutex = .{};
-var global_log: std.ArrayList(u8) = std.ArrayList(u8).init(std.heap.page_allocator);
+const VaxisLogWriter = struct {
+    pub const Writer = std.io.GenericWriter(*@This(), TextView.Buffer.Error, write);
+    allocator: std.mem.Allocator,
+    vaxis: *vaxis.Vaxis,
+    loop: *vaxis.Loop(Event),
+    buffer: TextView.Buffer = .{},
+    last_time: ?std.time.Instant = null,
 
-fn log_cb(comptime _: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
-    global_mutex.lock();
-    defer global_mutex.unlock();
-    global_log.writer().print(@tagName(scope) ++ ": " ++ format ++ "\n", args) catch {};
-}
+    pub fn write(self: *@This(), bytes: []const u8) !usize {
+        try self.buffer.append(self.allocator, .{
+            .bytes = bytes,
+            .gd = &self.vaxis.unicode.grapheme_data,
+            .wd = &self.vaxis.unicode.width_data,
+        });
+        const now = std.time.Instant.now() catch unreachable;
+        if (self.last_time == null or now.since(self.last_time.?) / std.time.ns_per_s > 0) {
+            self.loop.postEvent(.log);
+            self.last_time = now;
+        }
+        return bytes.len;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.buffer.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn writer(self: *@This()) Writer {
+        return .{ .context = self };
+    }
+};
+
+const GlobalLog = struct {
+    var mutex: std.Thread.Mutex = .{};
+    var writer: ?std.io.AnyWriter = null;
+    var last_date: ?datetime.DateTime = null;
+
+    pub fn log(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
+        ztd.meta.comptimeError(@tagName(scope).len > 15, "increase max scope length: {s}", .{@tagName(scope)});
+        mutex.lock();
+        defer mutex.unlock();
+        if (writer) |w| {
+            // TODO: get local timezone from the system
+            const now = datetime.DateTime.now().add(.{ .hours = 9 });
+            if (last_date == null or !std.meta.eql(last_date.?.date, now.date)) {
+                last_date = now;
+                w.print("--- {rfc3339} ---\n", .{now.date}) catch {};
+            }
+            const sign = switch (level) {
+                .debug => "D",
+                .info => "I",
+                .warn => "W",
+                .err => "E",
+            };
+            w.print("{s} {d:0>2}:{d:0>2}> {s:15}: " ++ format ++ "\n", .{
+                sign,
+                now.time.hour,
+                now.time.minute,
+                @tagName(scope),
+            } ++ args) catch {};
+        }
+    }
+
+    pub fn updateWriter(maybe_writer: ?std.io.AnyWriter) void {
+        mutex.lock();
+        defer mutex.unlock();
+        writer = maybe_writer;
+    }
+};
+
+pub const std_options: std.Options = .{
+    .logFn = GlobalLog.log,
+};
+
+pub const panic = vaxis.panic_handler;
 
 const Event = union(enum) {
+    log: void,
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
 };
@@ -31,29 +108,54 @@ pub fn main() !void {
 
     var vx = try vaxis.init(allocator, .{});
     defer vx.deinit(allocator, tty.anyWriter());
-    try vx.queryTerminal(tty.anyWriter(), 1 * std.time.ns_per_s);
 
     var loop: vaxis.Loop(Event) = .{ .tty = &tty, .vaxis = &vx };
+    try loop.init();
     try loop.start();
     defer loop.stop();
 
+    var log_writer: VaxisLogWriter = .{
+        .allocator = allocator,
+        .vaxis = &vx,
+        .loop = &loop,
+    };
+    defer log_writer.deinit();
+
+    _ = try log_writer.write(
+        \\███████╗██████╗ ██╗   ██╗██████╗ ██████╗  ██████╗     ██╗      ██████╗  ██████╗
+        \\██╔════╝██╔══██╗██║   ██║██╔══██╗██╔══██╗██╔═══██╗    ██║     ██╔═══██╗██╔════╝
+        \\███████╗██████╔╝██║   ██║██████╔╝██║  ██║██║   ██║    ██║     ██║   ██║██║  ███╗
+        \\╚════██║██╔═══╝ ██║   ██║██╔══██╗██║  ██║██║   ██║    ██║     ██║   ██║██║   ██║
+        \\███████║██║     ╚██████╔╝██║  ██║██████╔╝╚██████╔╝    ███████╗╚██████╔╝╚██████╔╝
+        \\╚══════╝╚═╝      ╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝     ╚══════╝ ╚═════╝  ╚═════╝
+        \\
+    );
+
+    GlobalLog.updateWriter(log_writer.writer().any());
+    defer GlobalLog.updateWriter(null);
+
     try vx.enterAltScreen(tty.anyWriter());
-    defer vx.exitAltScreen(tty.anyWriter()) catch {};
+    try vx.queryTerminal(tty.anyWriter(), 1 * std.time.ns_per_s);
 
     var editor = try Spurdo.init(allocator);
     defer editor.deinit();
-    try editor.run();
+
+    var log_viewer: TextView = .{};
 
     try editor.updateContents(.{
-        .lang = .zig,
-        .bytes = @embedFile("main.zig"),
+        .bytes = "lol\n" ++ @embedFile("main.zig"),
         .gd = &vx.unicode.grapheme_data,
+        .wd = &vx.unicode.width_data,
     });
 
     var log_view = false;
     while (true) {
+        var buffered_tty_writer = std.io.bufferedWriter(tty.anyWriter());
+        defer buffered_tty_writer.flush() catch {};
+
         const event = loop.nextEvent();
         switch (event) {
+            .log => {},
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
                     break;
@@ -64,10 +166,12 @@ pub fn main() !void {
                 } else {
                     if (!log_view) {
                         try editor.input(key);
-                    } else {}
+                    } else {
+                        log_viewer.input(key);
+                    }
                 }
             },
-            .winsize => |ws| try vx.resize(allocator, tty.anyWriter(), ws),
+            .winsize => |ws| try vx.resize(allocator, buffered_tty_writer.writer().any(), ws),
         }
 
         const root = vx.window();
@@ -77,6 +181,8 @@ pub fn main() !void {
         editor.draw(root);
 
         if (log_view) {
+            GlobalLog.mutex.lock();
+            defer GlobalLog.mutex.unlock();
             const child = root.child(.{
                 .x_off = 1,
                 .y_off = 1,
@@ -86,9 +192,9 @@ pub fn main() !void {
             });
             child.clear();
             child.hideCursor();
-            _ = child.print(&.{.{ .text = global_log.items }}, .{ .wrap = .grapheme }) catch {};
+            log_viewer.draw(child, log_writer.buffer);
         }
 
-        try vx.render(tty.anyWriter());
+        try vx.render(buffered_tty_writer.writer().any());
     }
 }

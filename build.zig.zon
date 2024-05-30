@@ -2,8 +2,17 @@
     .name = "spurdo",
     .version = "0.0.0",
     .dependencies = .{
-        .zignet = .{ .path = "deps/zignet" },
+        .ztd = .{ .path = "deps/ztd" },
+        .aio = .{ .path = "deps/zig-aio" },
         .vaxis = .{ .path = "deps/libvaxis" },
+        .@"lsp-codegen" = .{
+            .url = "git+https://github.com/zigtools/zig-lsp-codegen.git?ref=dev#a88e769418113048c0fd24f442c29f677cf43b8d",
+            .hash = "1220b93c7805e18f3bc5348d34d1e80d7aec6adc659809e2e41cba0d448296da3fe8",
+        },
+        .datetime = .{
+            .url = "git+https://github.com/clickingbuttons/datetime.git#ea78fc7ac81d5cc616d9fd758acc753d30522743",
+            .hash = "1220e6bda39336183cd193680ba0b575cac5f6aeee8af0470a3ccb86205e2c9a1eea",
+        },
     },
     .paths = .{
         "src",
