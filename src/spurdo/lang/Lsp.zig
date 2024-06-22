@@ -53,7 +53,7 @@ fn stdoutRead(self: *@This()) !void {
             self.engine.push(buf[0..len]) catch break;
             while (self.engine.pop(child.stdin.?.writer()) catch |err| {
                 // error occured, synchronize with writer and restart communication
-                log.err("engine: {}", .{err});
+                log.err("{}", .{err});
                 coro.wakeup(self.stdout_write_task.?);
                 break :outer;
             }) |out| switch (out) {
@@ -61,7 +61,10 @@ fn stdoutRead(self: *@This()) !void {
                 .semantic_tokens => {},
                 .nop => {},
             };
-            coro.io.single(aio.Read{ .file = child.stdout.?, .buffer = &buf, .out_read = &len }) catch break;
+            coro.io.single(aio.Read{ .file = child.stdout.?, .buffer = &buf, .out_read = &len }) catch |err| {
+                log.err("{}", .{err});
+                break;
+            };
         }
         log.warn("stdoutRead: {s}: communication with child lost", .{self.lang});
     }
@@ -81,7 +84,10 @@ fn stdoutWrite(self: *@This()) !void {
         coro.yield(Yield.init);
         while (self.child) |*child| {
             defer self.pipe.clearRetainingCapacity();
-            child.stdin.?.writeAll(self.pipe.items) catch break;
+            child.stdin.?.writeAll(self.pipe.items) catch |err| {
+                log.err("{}", .{err});
+                break;
+            };
             coro.yield(Yield.pipe);
         }
         log.warn("stdoutWrite: {s}: communication with child lost", .{self.lang});
@@ -99,7 +105,10 @@ fn stderr(self: *@This()) !void {
         var buf: [4096]u8 = undefined;
         var len: usize = undefined;
         while (self.child) |*child| {
-            coro.io.single(aio.Read{ .file = child.stderr.?, .buffer = &buf, .out_read = &len }) catch break;
+            coro.io.single(aio.Read{ .file = child.stderr.?, .buffer = &buf, .out_read = &len }) catch |err| {
+                log.err("{}", .{err});
+                break;
+            };
             _ = logger.write(buf[0..len]) catch continue;
         }
         log.warn("stderr: {s}: communication with child lost", .{self.lang});

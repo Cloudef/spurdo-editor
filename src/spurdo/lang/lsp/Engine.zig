@@ -319,6 +319,17 @@ pub fn pop(self: *@This(), writer: anytype) !?Output {
     return null;
 }
 
+fn get_process_id() std.posix.pid_t {
+    if (@hasDecl(std.posix.system, "getpid")) {
+        return std.posix.system.getpid();
+    } else {
+        const c = struct {
+            pub extern "c" fn getpid() std.posix.pid_t;
+        };
+        return c.getpid();
+    }
+}
+
 pub fn initialize(_: @This(), writer: anytype) !void {
     // TODO: engine should keep track of all open documents etc, and restore the state here
     const supportedSymbolKinds = comptime blk: {
@@ -343,7 +354,7 @@ pub fn initialize(_: @This(), writer: anytype) !void {
         break :blk tokens;
     };
     try rpc.send(0, .initialize, .{
-        .processId = std.os.linux.getpid(),
+        .processId = get_process_id(),
         .clientInfo = .{
             .name = "spurdo :D",
             .version = "0.0.0",
