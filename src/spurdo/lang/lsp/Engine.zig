@@ -81,6 +81,8 @@ pub fn init(allocator: std.mem.Allocator) @This() {
 pub fn deinit(self: *@This()) void {
     self.server.deinit(self.allocator);
     self.db.deinit();
+    var arena = self.arena.promote(self.allocator);
+    arena.deinit();
     self.* = undefined;
 }
 
@@ -194,7 +196,7 @@ pub const Output = union(enum) {
 
 pub fn pop(self: *@This(), writer: anytype) !?Output {
     var arena = self.arena.promote(self.allocator);
-    defer _ = arena.reset(.retain_capacity);
+    defer _ = arena.reset(.free_all);
     if (try self.parser.peek()) |rpc_msg| {
         defer self.parser.pop();
         switch (rpc_msg.type) {

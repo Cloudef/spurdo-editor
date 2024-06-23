@@ -11,31 +11,27 @@ pub const Buffer = Editor.Buffer;
 pub const Content = Editor.Buffer.Content;
 
 allocator: std.mem.Allocator,
-scheduler: coro.Scheduler,
+scheduler: *coro.Scheduler,
 lsp: Lsp,
 buffer: Buffer = .{},
 editor: Editor = .{},
 
-pub fn init(allocator: std.mem.Allocator) !@This() {
+pub fn init(allocator: std.mem.Allocator, scheduler: *coro.Scheduler) !@This() {
     return .{
         .allocator = allocator,
-        .scheduler = try coro.Scheduler.init(allocator, .{}),
+        .scheduler = scheduler,
         .lsp = Lsp.init(allocator, "zig"),
     };
 }
 
 pub fn deinit(self: *@This()) void {
-    self.lsp.deinit(&self.scheduler);
-    self.scheduler.deinit();
+    self.lsp.deinit();
+    self.buffer.deinit(self.allocator);
     self.* = undefined;
 }
 
 pub fn input(self: *@This(), key: vaxis.Key) !void {
     self.editor.input(key);
-}
-
-pub fn update(self: *@This()) !void {
-    try self.scheduler.tick(.nonblocking);
 }
 
 fn drawTopBar(_: *@This(), win: vaxis.Window) void {
@@ -103,7 +99,7 @@ pub fn updateContents(self: *@This(), content: Content) !void {
     try self.buffer.content.append(self.allocator, 0);
     defer _ = self.buffer.content.pop();
     try zig.style(self.allocator, .zig, .{}, @ptrCast(self.buffer.content.items[0..content.bytes.len]), self, styler);
-    try self.lsp.spawn(&self.scheduler);
+    try self.lsp.spawn(self.scheduler);
     try self.lsp.open(.{
         .idx = 0,
         .uri = "file:///home/nix/dev/personal/spurdo/src/main.zig",
