@@ -1,26 +1,28 @@
 const std = @import("std");
 const ztd = @import("ztd");
+const aio = @import("aio");
 const coro = @import("coro");
 const vaxis = @import("vaxis");
 const datetime = @import("datetime");
+const LoopWithModules = vaxis.aio.LoopWithModules;
 const Spurdo = @import("spurdo/Spurdo.zig");
 const TextView = vaxis.widgets.TextView;
 const log = std.log.scoped(.main);
 
-pub const aio_coro_options: coro.Options = .{
-    .error_handler = (struct {
-        fn handler(err: anyerror) void {
-            const scope = std.log.scoped(.coro);
-            scope.err("error: {s}", .{@errorName(err)});
-        }
-    }).handler,
+pub const coro_options: coro.Options = .{
+    // .debug = true,
+};
+
+pub const aio_options: aio.Options = .{
+    // .debug = true,
+    // .fallback = .force,
 };
 
 const VaxisLogWriter = struct {
     pub const Writer = std.io.GenericWriter(*@This(), TextView.Buffer.Error, write);
     allocator: std.mem.Allocator,
     vaxis: *vaxis.Vaxis,
-    loop: *vaxis.Loop(Event),
+    loop: *LoopWithModules(Event, aio, coro),
     buffer: TextView.Buffer = .{},
     last_time: ?std.time.Instant = null,
 
@@ -32,7 +34,7 @@ const VaxisLogWriter = struct {
         });
         const now = std.time.Instant.now() catch unreachable;
         if (self.last_time == null or now.since(self.last_time.?) / std.time.ns_per_s > 0) {
-            self.loop.postEvent(.log);
+            self.loop.postEvent(.log) catch {};
             self.last_time = now;
         }
         return bytes.len;
@@ -57,26 +59,25 @@ const GlobalLog = struct {
         ztd.meta.comptimeError(@tagName(scope).len > 15, "increase max scope length: {s}", .{@tagName(scope)});
         mutex.lock();
         defer mutex.unlock();
-        if (writer) |w| {
-            // TODO: get local timezone from the system
-            const now = datetime.DateTime.now().add(.{ .hours = 9 });
-            if (last_date == null or !std.meta.eql(last_date.?.date, now.date)) {
-                last_date = now;
-                w.print("--- {rfc3339} ---\n", .{now.date}) catch {};
-            }
-            const sign = switch (level) {
-                .debug => "D",
-                .info => "I",
-                .warn => "W",
-                .err => "E",
-            };
-            w.print("{s} {d:0>2}:{d:0>2}> {s:15}: " ++ format ++ "\n", .{
-                sign,
-                now.time.hour,
-                now.time.minute,
-                @tagName(scope),
-            } ++ args) catch {};
+        var w = writer orelse std.io.getStdErr().writer().any();
+        // TODO: get local timezone from the system
+        const now = datetime.DateTime.now().add(.{ .hours = 9 });
+        if (last_date == null or !std.meta.eql(last_date.?.date, now.date)) {
+            last_date = now;
+            w.print("--- {rfc3339} ---\n", .{now.date}) catch {};
         }
+        const sign = switch (level) {
+            .debug => "D",
+            .info => "I",
+            .warn => "W",
+            .err => "E",
+        };
+        w.print("{s} {d:0>2}:{d:0>2}> {s:15}: " ++ format ++ "\n", .{
+            sign,
+            now.time.hour,
+            now.time.minute,
+            @tagName(scope),
+        } ++ args) catch {};
     }
 
     pub fn updateWriter(maybe_writer: ?std.io.AnyWriter) void {
@@ -109,10 +110,12 @@ pub fn main() !void {
     var vx = try vaxis.init(allocator, .{});
     defer vx.deinit(allocator, tty.anyWriter());
 
-    var loop: vaxis.Loop(Event) = .{ .tty = &tty, .vaxis = &vx };
-    try loop.init();
-    try loop.start();
-    defer loop.stop();
+    var scheduler = try coro.Scheduler.init(allocator, .{});
+    defer scheduler.deinit();
+
+    var loop = try LoopWithModules(Event, aio, coro).init();
+    try loop.spawn(&scheduler, &vx, &tty, null, .{});
+    defer loop.deinit(&vx, &tty);
 
     var log_writer: VaxisLogWriter = .{
         .allocator = allocator,
@@ -135,9 +138,9 @@ pub fn main() !void {
     defer GlobalLog.updateWriter(null);
 
     try vx.enterAltScreen(tty.anyWriter());
-    try vx.queryTerminal(tty.anyWriter(), 1 * std.time.ns_per_s);
+    try vx.queryTerminalSend(tty.anyWriter());
 
-    var editor = try Spurdo.init(allocator);
+    var editor = try Spurdo.init(allocator, &scheduler);
     defer editor.deinit();
 
     var log_viewer: TextView = .{};
@@ -149,16 +152,15 @@ pub fn main() !void {
     });
 
     var log_view = false;
-    while (true) {
-        var buffered_tty_writer = std.io.bufferedWriter(tty.anyWriter());
-        defer buffered_tty_writer.flush() catch {};
+    var buffered_tty_writer = tty.bufferedWriter();
+    main: while (true) {
+        _ = try scheduler.tick(.blocking);
 
-        const event = loop.nextEvent();
-        switch (event) {
+        while (try loop.popEvent()) |event| switch (event) {
             .log => {},
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
-                    break;
+                    break :main;
                 } else if (key.matches('l', .{ .ctrl = true })) {
                     vx.queueRefresh();
                 } else if (key.matches(vaxis.Key.f12, .{})) {
@@ -172,12 +174,11 @@ pub fn main() !void {
                 }
             },
             .winsize => |ws| try vx.resize(allocator, buffered_tty_writer.writer().any(), ws),
-        }
+        };
 
         const root = vx.window();
         root.clear();
 
-        try editor.update();
         editor.draw(root);
 
         if (log_view) {
@@ -196,5 +197,6 @@ pub fn main() !void {
         }
 
         try vx.render(buffered_tty_writer.writer().any());
+        try buffered_tty_writer.flush();
     }
 }

@@ -81,6 +81,8 @@ pub fn init(allocator: std.mem.Allocator) @This() {
 pub fn deinit(self: *@This()) void {
     self.server.deinit(self.allocator);
     self.db.deinit();
+    var arena = self.arena.promote(self.allocator);
+    arena.deinit();
     self.* = undefined;
 }
 
@@ -194,7 +196,7 @@ pub const Output = union(enum) {
 
 pub fn pop(self: *@This(), writer: anytype) !?Output {
     var arena = self.arena.promote(self.allocator);
-    defer _ = arena.reset(.retain_capacity);
+    defer _ = arena.reset(.free_all);
     if (try self.parser.peek()) |rpc_msg| {
         defer self.parser.pop();
         switch (rpc_msg.type) {
@@ -319,14 +321,19 @@ pub fn pop(self: *@This(), writer: anytype) !?Output {
     return null;
 }
 
-fn get_process_id() std.posix.pid_t {
+fn get_process_id() i32 {
     if (@hasDecl(std.posix.system, "getpid")) {
         return std.posix.system.getpid();
     } else {
         const c = struct {
             pub extern "c" fn getpid() std.posix.pid_t;
         };
-        return c.getpid();
+        if (std.posix.pid_t == *anyopaque) {
+            return @intCast(@intFromPtr(c.getpid()));
+        } else {
+            return c.getpid();
+        }
+        unreachable;
     }
 }
 

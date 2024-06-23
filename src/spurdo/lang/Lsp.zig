@@ -11,12 +11,14 @@ lang: []const u8,
 engine: Engine,
 child: ?std.process.Child = null,
 pipe: std.ArrayListUnmanaged(u8) = .{},
-watchdog_task: ?coro.Task = null,
-stdout_write_task: ?coro.Task = null,
-stdout_read_task: ?coro.Task = null,
-stderr_task: ?coro.Task = null,
+watchdog_task: ?coro.Task.Generic2(watchdog) = null,
+stdout_write_task: ?coro.Task.Generic2(stdoutWrite) = null,
+stdout_read_task: ?coro.Task.Generic2(stdoutRead) = null,
+stderr_task: ?coro.Task.Generic2(stderr) = null,
+exit: bool = false,
 
 const Yield = enum {
+    no_state,
     init,
     pipe,
 };
@@ -29,11 +31,12 @@ pub fn init(allocator: std.mem.Allocator, lang: []const u8) @This() {
     };
 }
 
-pub fn deinit(self: *@This(), scheduler: *coro.Scheduler) void {
-    if (self.watchdog_task) |task| scheduler.reap(task);
-    if (self.stdout_write_task) |task| scheduler.reap(task);
-    if (self.stdout_read_task) |task| scheduler.reap(task);
-    if (self.stderr_task) |task| scheduler.reap(task);
+pub fn deinit(self: *@This()) void {
+    self.exit = true;
+    if (self.watchdog_task) |task| task.cancel();
+    if (self.stdout_write_task) |task| task.cancel();
+    if (self.stdout_read_task) |task| task.cancel();
+    if (self.stderr_task) |task| task.cancel();
     if (self.child) |*child| cleanChild(child);
     self.engine.deinit();
     self.pipe.deinit(self.allocator);
@@ -41,29 +44,28 @@ pub fn deinit(self: *@This(), scheduler: *coro.Scheduler) void {
 }
 
 fn stdoutRead(self: *@This()) !void {
-    defer self.stdout_read_task = null;
     defer log.debug("stdoutRead: {s}: bye", .{self.lang});
-    while (true) {
+    while (!self.exit) {
         while (self.child == null) {
             try coro.io.single(aio.Timeout{ .ns = std.time.ns_per_s });
         }
         var buf: [rpc.BufferSize]u8 = undefined;
         var len: usize = 0;
-        outer: while (self.child) |*child| {
+        child: while (self.child) |*child| {
             self.engine.push(buf[0..len]) catch break;
             while (self.engine.pop(child.stdin.?.writer()) catch |err| {
                 // error occured, synchronize with writer and restart communication
                 log.err("{}", .{err});
-                coro.wakeup(self.stdout_write_task.?);
-                break :outer;
+                self.stdout_write_task.?.wakeupIf(Yield.init);
+                break :child;
             }) |out| switch (out) {
-                .initialized => coro.wakeupFromState(self.stdout_write_task.?, Yield.init, .no_wait),
+                .initialized => self.stdout_write_task.?.wakeupIf(Yield.init),
                 .semantic_tokens => {},
                 .nop => {},
             };
             coro.io.single(aio.Read{ .file = child.stdout.?, .buffer = &buf, .out_read = &len }) catch |err| {
                 log.err("{}", .{err});
-                break;
+                break :child;
             };
         }
         log.warn("stdoutRead: {s}: communication with child lost", .{self.lang});
@@ -71,9 +73,8 @@ fn stdoutRead(self: *@This()) !void {
 }
 
 fn stdoutWrite(self: *@This()) !void {
-    defer self.stdout_write_task = null;
     defer log.debug("stdoutWrite: {s}: bye", .{self.lang});
-    while (true) {
+    while (!self.exit) {
         while (self.child == null) {
             try coro.io.single(aio.Timeout{ .ns = std.time.ns_per_s });
         }
@@ -81,23 +82,22 @@ fn stdoutWrite(self: *@This()) !void {
             self.engine.initialize(child.stdin.?.writer()) catch continue;
         } else continue;
         // wait until lsp is initialized
-        coro.yield(Yield.init);
+        try coro.yield(Yield.init);
         while (self.child) |*child| {
             defer self.pipe.clearRetainingCapacity();
             child.stdin.?.writeAll(self.pipe.items) catch |err| {
                 log.err("{}", .{err});
                 break;
             };
-            coro.yield(Yield.pipe);
+            try coro.yield(Yield.pipe);
         }
         log.warn("stdoutWrite: {s}: communication with child lost", .{self.lang});
     }
 }
 
 fn stderr(self: *@This()) !void {
-    defer self.stderr_task = null;
     defer log.debug("stderr: {s}: bye", .{self.lang});
-    while (true) {
+    while (!self.exit) {
         while (self.child == null) {
             try coro.io.single(aio.Timeout{ .ns = std.time.ns_per_s });
         }
@@ -128,19 +128,20 @@ fn cleanChild(child: *std.process.Child) void {
 fn watchdog(self: *@This()) !void {
     defer self.watchdog_task = null;
     defer log.debug("watchdog: {s}: bye", .{self.lang});
-    while (true) {
+    while (!self.exit) {
         while (self.child) |*child| {
             coro.io.single(aio.ChildExit{ .child = child.id }) catch break;
         }
+        if (self.exit) break;
         if (self.child) |*child| {
             log.warn("watchdog: {s}: unexpected lsp process exit, restarting ...", .{self.lang});
             cleanChild(child);
         }
         self.child = null;
         // make tasks aware that the child is dead
-        if (self.stdout_read_task) |task| coro.wakeup(task);
-        if (self.stdout_write_task) |task| coro.wakeup(task);
-        if (self.stderr_task) |task| coro.wakeup(task);
+        if (self.stdout_read_task) |task| task.signal();
+        if (self.stdout_write_task) |task| task.signal();
+        if (self.stderr_task) |task| task.signal();
         var child = std.process.Child.init(&.{ "nix", "run", "github:zigtools/zls" }, self.allocator);
         child.stdin_behavior = .Pipe;
         child.stdout_behavior = .Pipe;
@@ -151,10 +152,11 @@ fn watchdog(self: *@This()) !void {
 }
 
 pub fn spawn(self: *@This(), scheduler: *coro.Scheduler) !void {
-    if (self.watchdog_task) |task| scheduler.reap(task);
-    if (self.stdout_write_task) |task| scheduler.reap(task);
-    if (self.stdout_read_task) |task| scheduler.reap(task);
-    if (self.stderr_task) |task| scheduler.reap(task);
+    if (self.exit) return;
+    if (self.watchdog_task) |task| task.cancel();
+    if (self.stdout_write_task) |task| task.cancel();
+    if (self.stdout_read_task) |task| task.cancel();
+    if (self.stderr_task) |task| task.cancel();
     self.watchdog_task = try scheduler.spawn(watchdog, .{self}, .{});
     self.stdout_write_task = try scheduler.spawn(stdoutWrite, .{self}, .{});
     self.stdout_read_task = try scheduler.spawn(stdoutRead, .{self}, .{});
@@ -166,7 +168,7 @@ pub fn db(self: *@This()) *Engine.Db {
 }
 
 fn notifyPipe(self: *@This()) void {
-    if (self.stdout_write_task) |task| coro.wakeupFromState(task, Yield.pipe, .no_wait);
+    if (self.stdout_write_task) |task| task.wakeupIf(Yield.pipe);
 }
 
 pub fn open(self: *@This(), opts: Engine.OpenOptions) !void {
