@@ -3,8 +3,8 @@ const ztd = @import("ztd");
 const aio = @import("aio");
 const coro = @import("coro");
 const vaxis = @import("vaxis");
+const LoopWithModules = @import("vaxis-aio.zig").LoopWithModules;
 const datetime = @import("datetime");
-const LoopWithModules = vaxis.aio.LoopWithModules;
 const Spurdo = @import("spurdo/Spurdo.zig");
 const TextView = vaxis.widgets.TextView;
 const log = std.log.scoped(.main);
@@ -29,7 +29,7 @@ const VaxisLogWriter = struct {
     pub fn write(self: *@This(), bytes: []const u8) !usize {
         try self.buffer.append(self.allocator, .{
             .bytes = bytes,
-            .gd = &self.vaxis.unicode.grapheme_data,
+            .gd = &self.vaxis.unicode.width_data.g_data,
             .wd = &self.vaxis.unicode.width_data,
         });
         const now = std.time.Instant.now() catch unreachable;
@@ -147,7 +147,7 @@ pub fn main() !void {
 
     try editor.updateContents(.{
         .bytes = "lol\n" ++ @embedFile("main.zig"),
-        .gd = &vx.unicode.grapheme_data,
+        .gd = &vx.unicode.width_data.g_data,
         .wd = &vx.unicode.width_data,
     });
 
@@ -187,8 +187,8 @@ pub fn main() !void {
             const child = root.child(.{
                 .x_off = 1,
                 .y_off = 1,
-                .width = .{ .limit = root.width - 2 },
-                .height = .{ .limit = root.height - 2 },
+                .width = root.width - 2,
+                .height = root.height - 2,
                 .border = .{ .where = .all, .style = .{ .fg = .{ .index = 1 } } },
             });
             child.clear();

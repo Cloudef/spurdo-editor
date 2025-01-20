@@ -181,11 +181,11 @@ pub fn draw(self: *@This(), win: vaxis.Window, buffer: Buffer, opts: DrawOptions
         nl.draw(win.child(.{
             .x_off = 0,
             .y_off = 0,
-            .width = .{ .limit = pad_left },
-            .height = .{ .limit = win.height },
+            .width = @intCast(pad_left),
+            .height = win.height,
         }), self.scroll_view.scroll.y);
     }
-    self.drawCode(win.child(.{ .x_off = pad_left }), buffer, opts);
+    self.drawCode(win.child(.{ .x_off = @intCast(pad_left) }), buffer, opts);
 }
 
 fn drawCode(self: *@This(), win: vaxis.Window, buffer: Buffer, opts: DrawOptions) void {
@@ -240,7 +240,7 @@ fn drawCode(self: *@This(), win: vaxis.Window, buffer: Buffer, opts: DrawOptions
             self.scroll_view.writeCell(win, pos.x, pos.y, cell);
         } else {
             self.scroll_view.writeCell(win, pos.x, pos.y, .{
-                .char = .{ .grapheme = cluster, .width = width },
+                .char = .{ .grapheme = cluster, .width = @intCast(width) },
                 .style = style,
             });
         }

@@ -35,25 +35,19 @@ pub fn input(self: *@This(), key: vaxis.Key) !void {
 }
 
 fn drawTopBar(_: *@This(), win: vaxis.Window) void {
-    _ = win.print(&.{.{
-        .text = " src ›  main.zig › 󰡱 main",
-    }}, .{}) catch {};
+    _ = win.print(&.{.{ .text = " src ›  main.zig › 󰡱 main" }}, .{});
 }
 
 fn drawBottomBar(_: *@This(), win: vaxis.Window) void {
-    _ = win.print(&.{.{
-        .text = "Normal",
-    }}, .{}) catch {};
+    _ = win.print(&.{.{ .text = "Normal" }}, .{});
 }
 
 pub fn draw(self: *@This(), win: vaxis.Window) void {
-    self.drawTopBar(win.child(.{
-        .height = .{ .limit = 1 },
-    }));
+    self.drawTopBar(win.child(.{ .height = 1 }));
 
     self.editor.draw(win.child(.{
         .y_off = 1,
-        .height = .{ .limit = win.height -| 2 },
+        .height = win.height -| 2,
     }), self.buffer, .{
         .indentation = 4,
         .highlighted_line = 92,
@@ -61,7 +55,7 @@ pub fn draw(self: *@This(), win: vaxis.Window) void {
 
     self.drawBottomBar(win.child(.{
         .y_off = win.height - 1,
-        .height = .{ .limit = 1 },
+        .height = 1,
     }));
 }
 
