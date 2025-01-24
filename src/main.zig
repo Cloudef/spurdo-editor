@@ -9,15 +9,6 @@ const Spurdo = @import("spurdo/Spurdo.zig");
 const TextView = vaxis.widgets.TextView;
 const log = std.log.scoped(.main);
 
-pub const coro_options: coro.Options = .{
-    // .debug = true,
-};
-
-pub const aio_options: aio.Options = .{
-    // .debug = true,
-    // .fallback = .force,
-};
-
 const VaxisLogWriter = struct {
     pub const Writer = std.io.GenericWriter(*@This(), TextView.Buffer.Error, write);
     allocator: std.mem.Allocator,

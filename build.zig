@@ -6,9 +6,13 @@ pub fn build(b: *std.Build) void {
 
     const ztd = b.dependency("ztd", .{});
 
+    const PosixMode = enum { auto, force, disable };
     const aio = b.dependency("aio", .{
         .target = target,
         .optimize = optimize,
+        .@"aio:posix" = b.option(PosixMode, "aio:posix", "posix mode [auto, force, disable] (zig-aio)") orelse .auto,
+        .@"aio:debug" = b.option(bool, "aio:debug", "enable debug prints (zig-aio)") orelse false,
+        .@"coro:debug" = b.option(bool, "coro:debug", "enable debug prints (zig-aio)") orelse false,
     });
 
     const lsp = b.dependency("lsp-codegen", .{
