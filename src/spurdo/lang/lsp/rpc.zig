@@ -4,7 +4,7 @@ const log = std.log.scoped(.lsp);
 // Generated message structs
 pub const msg = @import("lsp-generated");
 
-pub const BufferSize = 4096 * 2;
+pub const BufferSize = 16384;
 
 const PackedID = packed struct(u64) {
     const Parity = 0b00000_00000_10101_01010_10101;
