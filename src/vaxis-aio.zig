@@ -69,7 +69,11 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
             };
         }
 
-        fn windowsReadEvent(tty: *vaxis.Tty) !vaxis.Event {
+        fn windowsReadEvent(vx: *vaxis.Vaxis, tty: *vaxis.Tty, paste_allocator: ?std.mem.Allocator) !vaxis.Event {
+            var parser: vaxis.Parser = .{
+                .grapheme_data = &vx.unicode.width_data.g_data,
+            };
+
             var state: vaxis.Tty.EventState = .{};
             while (true) {
                 var bytes_read: usize = 0;
@@ -80,16 +84,16 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
                     .out_read = &bytes_read,
                 });
 
-                if (try tty.eventFromRecord(&input_record, &state)) |ev| {
+                if (try tty.eventFromRecord(&input_record, &state, &parser, paste_allocator)) |ev| {
                     return ev;
                 }
             }
         }
 
-        fn ttyReaderWindows(self: *@This(), vx: *vaxis.Vaxis, tty: *vaxis.Tty) !void {
+        fn ttyReaderWindows(self: *@This(), vx: *vaxis.Vaxis, tty: *vaxis.Tty, paste_allocator: ?std.mem.Allocator) !void {
             var cache: vaxis.GraphemeCache = .{};
             while (true) {
-                const event = try windowsReadEvent(tty);
+                const event = try windowsReadEvent(vx, tty, paste_allocator);
                 try handleEventGeneric(self, vx, &cache, Event, event, null);
             }
         }
@@ -138,7 +142,7 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
 
         fn ttyReaderTask(self: *@This(), vx: *vaxis.Vaxis, tty: *vaxis.Tty, paste_allocator: ?std.mem.Allocator) void {
             return switch (builtin.target.os.tag) {
-                .windows => self.ttyReaderWindows(vx, tty),
+                .windows => self.ttyReaderWindows(vx, tty, paste_allocator),
                 else => self.ttyReaderPosix(vx, tty, paste_allocator),
             } catch |err| {
                 if (err != error.Canceled) log.err("ttyReader: {}", .{err});
