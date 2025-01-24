@@ -133,7 +133,8 @@ fn watchdog(self: *@This()) !void {
     defer log.debug("watchdog: {s}: bye", .{self.lang});
     while (!self.exit) {
         while (self.child) |*child| {
-            coro.io.single(aio.ChildExit{ .child = child.id }) catch break;
+            coro.io.single(aio.ChildExit{ .child = child.id }) catch {};
+            break;
         }
         if (self.exit) break;
         if (self.child) |*child| {
