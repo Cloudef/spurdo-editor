@@ -47,18 +47,18 @@ fn stdoutRead(self: *@This()) !void {
     defer log.debug("stdoutRead: {s}: bye", .{self.lang});
     while (!self.exit) {
         while (self.child == null) {
-            try coro.io.single(aio.Timeout{ .ns = std.time.ns_per_s });
+            try coro.io.single(.timeout, .{ .ns = std.time.ns_per_s });
         }
         var buf: [rpc.BufferSize]u8 = undefined;
         var len: usize = 0;
         child: while (self.child) |*child| {
             self.engine.push(buf[0..len]) catch |err| {
-                log.err("stdoutRead: {s}: {}", .{self.lang, err});
+                log.err("stdoutRead: {s}: {}", .{ self.lang, err });
                 break :child;
             };
             while (self.engine.pop(child.stdin.?.writer()) catch |err| {
                 // error occured, synchronize with writer and restart communication
-                log.err("stdoutRead: {s}: {}", .{self.lang, err});
+                log.err("stdoutRead: {s}: {}", .{ self.lang, err });
                 self.stdout_write_task.?.wakeupIf(Yield.init);
                 break :child;
             }) |out| switch (out) {
@@ -66,8 +66,8 @@ fn stdoutRead(self: *@This()) !void {
                 .semantic_tokens => {},
                 .nop => {},
             };
-            coro.io.single(aio.Read{ .file = child.stdout.?, .buffer = &buf, .out_read = &len }) catch |err| {
-                log.err("stdoutRead: {s}: {}", .{self.lang, err});
+            coro.io.single(.read, .{ .file = child.stdout.?, .buffer = &buf, .out_read = &len }) catch |err| {
+                log.err("stdoutRead: {s}: {}", .{ self.lang, err });
                 break :child;
             };
         }
@@ -79,7 +79,7 @@ fn stdoutWrite(self: *@This()) !void {
     defer log.debug("stdoutWrite: {s}: bye", .{self.lang});
     while (!self.exit) {
         while (self.child == null) {
-            try coro.io.single(aio.Timeout{ .ns = std.time.ns_per_s });
+            try coro.io.single(.timeout, .{ .ns = std.time.ns_per_s });
         }
         if (self.child) |*child| {
             self.engine.initialize(child.stdin.?.writer()) catch continue;
@@ -89,7 +89,7 @@ fn stdoutWrite(self: *@This()) !void {
         while (self.child) |*child| {
             defer self.pipe.clearRetainingCapacity();
             child.stdin.?.writeAll(self.pipe.items) catch |err| {
-                log.err("stdoutWrite: {s}: {}", .{self.lang, err});
+                log.err("stdoutWrite: {s}: {}", .{ self.lang, err });
                 break;
             };
             try coro.yield(Yield.pipe);
@@ -102,14 +102,14 @@ fn stderr(self: *@This()) !void {
     defer log.debug("stderr: {s}: bye", .{self.lang});
     while (!self.exit) {
         while (self.child == null) {
-            try coro.io.single(aio.Timeout{ .ns = std.time.ns_per_s });
+            try coro.io.single(.timeout, .{ .ns = std.time.ns_per_s });
         }
         var logger = ztd.io.newlineLogger(4096, log.info);
         var buf: [4096]u8 = undefined;
         var len: usize = undefined;
         while (self.child) |*child| {
-            coro.io.single(aio.Read{ .file = child.stderr.?, .buffer = &buf, .out_read = &len }) catch |err| {
-                log.err("stderr: {s}: {}", .{self.lang, err});
+            coro.io.single(.read, .{ .file = child.stderr.?, .buffer = &buf, .out_read = &len }) catch |err| {
+                log.err("stderr: {s}: {}", .{ self.lang, err });
                 break;
             };
             _ = logger.write(buf[0..len]) catch continue;
@@ -133,7 +133,7 @@ fn watchdog(self: *@This()) !void {
     defer log.debug("watchdog: {s}: bye", .{self.lang});
     while (!self.exit) {
         while (self.child) |*child| {
-            coro.io.single(aio.ChildExit{ .child = child.id }) catch {};
+            coro.io.single(.child_exit, .{ .child = child.id }) catch {};
             break;
         }
         if (self.exit) break;

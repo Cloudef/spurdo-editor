@@ -53,7 +53,7 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
             }
 
             while (true) {
-                try coro.io.single(aio.WaitEventSource{ .source = &self.source });
+                try coro.io.single(.wait_event_source, .{ .source = &self.source });
                 if (ctx.winsize) |winsize| {
                     if (!@hasField(Event, "winsize")) unreachable;
                     ctx.loop.postEvent(.{ .winsize = winsize }) catch {};
@@ -78,7 +78,7 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
             while (true) {
                 var bytes_read: usize = 0;
                 var input_record: vaxis.Tty.INPUT_RECORD = undefined;
-                try coro.io.single(aio.ReadTty{
+                try coro.io.single(.read_tty, .{
                     .tty = .{ .handle = tty.stdin },
                     .buffer = std.mem.asBytes(&input_record),
                     .out_read = &bytes_read,
@@ -117,7 +117,7 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
                 var buf: [4096]u8 = undefined;
                 var n: usize = undefined;
                 var read_start: usize = 0;
-                try coro.io.single(aio.ReadTty{ .tty = file, .buffer = buf[read_start..], .out_read = &n });
+                try coro.io.single(.read_tty, .{ .tty = file, .buffer = buf[read_start..], .out_read = &n });
                 var seq_start: usize = 0;
                 while (seq_start < n) {
                     const result = try parser.parse(buf[seq_start..n], paste_allocator);
