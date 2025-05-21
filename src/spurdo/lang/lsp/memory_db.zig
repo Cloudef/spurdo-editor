@@ -4,7 +4,7 @@ const ztd = @import("ztd");
 const ChunkAllocator = @import("chunk_allocator.zig").ChunkAllocator;
 
 pub fn MemoryDB(comptime Tables: type) type {
-    ztd.meta.comptimeAssertType(Tables, "ztd", "Tables", &.{.Struct});
+    ztd.meta.comptimeAssertType(Tables, "ztd", "Tables", &.{.@"struct"});
 
     const TablesStruct = blk: {
         var fields: []const std.builtin.Type.StructField = &.{};
@@ -44,16 +44,16 @@ pub fn MemoryDB(comptime Tables: type) type {
                 }
             };
 
-            fields = fields ++ .{.{
+            fields = fields ++ .{std.builtin.Type.StructField{
                 .name = field.name,
                 .type = Table,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = false,
                 .alignment = 0,
             }};
         }
         break :blk @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .layout = .auto,
                 .fields = fields,
                 .decls = &.{},

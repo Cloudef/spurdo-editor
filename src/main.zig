@@ -45,6 +45,7 @@ const GlobalLog = struct {
     var mutex: std.Thread.Mutex = .{};
     var writer: ?std.io.AnyWriter = null;
     var last_date: ?datetime.DateTime = null;
+    foobar: u32 = 42, // just to test if things highlight
 
     pub fn log(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
         ztd.meta.comptimeError(@tagName(scope).len > 15, "increase max scope length: {s}", .{@tagName(scope)});

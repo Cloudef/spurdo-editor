@@ -36,7 +36,6 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
                 tty: *vaxis.Tty,
                 winsize: ?vaxis.Winsize = null,
                 fn cb(ptr: *anyopaque) void {
-                    std.debug.assert(coro.current() == null);
                     const ctx: *@This() = @ptrCast(@alignCast(ptr));
                     ctx.winsize = vaxis.Tty.getWinsize(ctx.tty.fd) catch return;
                     ctx.loop.source.notify();
@@ -163,8 +162,11 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
             // This is required even if app doesn't care about winsize
             // It is because it consumes the EventSource, so it can wakeup the scheduler
             // Without that custom `postEvent`'s wouldn't wake up the scheduler and UI wouldn't update
-            self.winsize_task = try scheduler.spawn(winsizeTask, .{ self, tty }, spawn_options);
-            self.reader_task = try scheduler.spawn(ttyReaderTask, .{ self, vx, tty, paste_allocator }, spawn_options);
+            var opts = spawn_options;
+            opts.name = "vaxis:winsize_task";
+            self.winsize_task = try scheduler.spawn(winsizeTask, .{ self, tty }, opts);
+            opts.name = "vaxis:reader_task";
+            self.reader_task = try scheduler.spawn(ttyReaderTask, .{ self, vx, tty, paste_allocator }, opts);
         }
 
         pub const PopEventError = error{TtyCommunicationSevered};
@@ -174,7 +176,7 @@ pub fn LoopWithModules(T: type, aio: type, coro: type) type {
             if (self.fatal) return error.TtyCommunicationSevered;
             defer self.winsize_task.?.wakeupIf(Yield.took_event);
             defer self.reader_task.?.wakeupIf(Yield.took_event);
-            return self.queue.popOrNull();
+            return self.queue.pop();
         }
 
         pub const PostEventError = error{Overflow};

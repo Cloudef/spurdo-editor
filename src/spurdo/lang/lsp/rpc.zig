@@ -2,7 +2,8 @@ const std = @import("std");
 const log = std.log.scoped(.lsp);
 
 // Generated message structs
-pub const msg = @import("lsp-generated");
+pub const msg = @import("lsp-generated").types;
+const JsonRPCMessage = @import("lsp-generated").JsonRPCMessage;
 
 pub const BufferSize = 16384;
 
@@ -57,19 +58,19 @@ const MethodType = enum {
 pub const Method = blk: {
     var fields: []const std.builtin.Type.EnumField = &.{};
     for (msg.request_metadata, 0..) |meta, idx| {
-        fields = fields ++ .{.{
+        fields = fields ++ .{std.builtin.Type.EnumField{
             .name = meta.method ++ "",
             .value = idx,
         }};
     }
     for (msg.notification_metadata, 0..) |meta, idx| {
-        fields = fields ++ .{.{
+        fields = fields ++ .{std.builtin.Type.EnumField{
             .name = meta.method ++ "",
             .value = msg.request_metadata.len + idx,
         }};
     }
     break :blk @Type(.{
-        .Enum = .{
+        .@"enum" = .{
             .tag_type = std.math.IntFittingRange(0, fields.len),
             .fields = fields,
             .decls = &.{},
@@ -141,7 +142,7 @@ fn RequestResponse(Result: type) type {
 }
 
 pub const Error = struct {
-    code: msg.JsonRPCMessage.Response.Error.Code,
+    code: JsonRPCMessage.Response.Error.Code,
     message: []const u8,
 };
 
@@ -221,9 +222,9 @@ pub const Parser = struct {
         self.header = blk: {
             var content_length: ?usize = null;
             var content_type: ContentType = .@"application/vscode-jsonrpc; charset=utf-8";
-            var hdr_iter = std.mem.tokenize(u8, self.bounded.constSlice()[0 .. off - 4], "\r\n");
+            var hdr_iter = std.mem.tokenizeSequence(u8, self.bounded.constSlice()[0 .. off - 4], "\r\n");
             while (hdr_iter.next()) |kv| {
-                var kv_iter = std.mem.tokenize(u8, kv, ": ");
+                var kv_iter = std.mem.tokenizeSequence(u8, kv, ": ");
                 const key = kv_iter.next() orelse return error.InvalidMsg1;
                 const val = kv_iter.next() orelse return error.InvalidMsg2;
                 if (std.ascii.eqlIgnoreCase(key, "content-length")) {

@@ -18,7 +18,6 @@ pub fn build(b: *std.Build) void {
     const lsp = b.dependency("lsp-codegen", .{
         .target = target,
         .optimize = optimize,
-        .@"meta-model" = @as([]const u8, "lsp.json"),
     });
 
     const datetime = b.dependency("datetime", .{});

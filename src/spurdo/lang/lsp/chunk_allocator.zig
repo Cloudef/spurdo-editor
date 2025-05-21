@@ -13,16 +13,16 @@ pub fn ChunkAllocator(opts: Options) type {
         var fields: []const std.builtin.Type.StructField = &.{};
         for (opts.chunks) |sz| {
             const Pool = FreeList(struct { mem: [sz]u8 });
-            fields = fields ++ .{.{
+            fields = fields ++ .{std.builtin.Type.StructField{
                 .name = std.fmt.comptimePrint("p{}", .{sz}),
                 .type = Pool,
-                .default_value = &Pool{},
+                .default_value_ptr = &Pool{},
                 .is_comptime = false,
                 .alignment = 0,
             }};
         }
         break :blk @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .layout = .auto,
                 .fields = fields,
                 .decls = &.{},
@@ -61,13 +61,14 @@ pub fn ChunkAllocator(opts: Options) type {
                     .alloc = alloc,
                     .resize = resize,
                     .free = free,
+                    .remap = remap,
                 },
             };
         }
 
-        fn alloc(ctx: *anyopaque, len: usize, ptr_align: u8, _: usize) ?[*]u8 {
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
             const self: *@This() = @ptrCast(@alignCast(ctx));
-            const n = len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(ptr_align)));
+            const n = len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intFromEnum(alignment)));
             inline for (std.meta.fields(Pools), opts.chunks) |field, sz| {
                 if (n <= sz) {
                     log.debug("{s}: requested {} bytes, allocated {} bytes", .{ field.name, len, n });
@@ -79,18 +80,22 @@ pub fn ChunkAllocator(opts: Options) type {
             return null;
         }
 
-        fn resize(_: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, _: usize) bool {
-            const cur_n = buf.len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(buf_align)));
-            const new_n = new_len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(buf_align)));
+        fn resize(_: *anyopaque, buf: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
+            const cur_n = buf.len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intFromEnum(alignment)));
+            const new_n = new_len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intFromEnum(alignment)));
             inline for (opts.chunks) |sz| {
                 if (cur_n <= sz) return (new_n <= sz);
             }
             unreachable;
         }
 
-        fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, _: usize) void {
+        fn remap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+            return null;
+        }
+
+        fn free(ctx: *anyopaque, buf: []u8, alignment: std.mem.Alignment, _: usize) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
-            const n = buf.len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(buf_align)));
+            const n = buf.len + (@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intFromEnum(alignment)));
             inline for (std.meta.fields(Pools), opts.chunks) |field, sz| {
                 if (n <= sz) {
                     const pool = &@field(self.pool, field.name);

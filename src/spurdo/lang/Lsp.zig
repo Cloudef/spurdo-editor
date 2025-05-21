@@ -161,10 +161,10 @@ pub fn spawn(self: *@This(), scheduler: *coro.Scheduler) !void {
     if (self.stdout_write_task) |task| task.cancel();
     if (self.stdout_read_task) |task| task.cancel();
     if (self.stderr_task) |task| task.cancel();
-    self.watchdog_task = try scheduler.spawn(watchdog, .{self}, .{});
-    self.stdout_write_task = try scheduler.spawn(stdoutWrite, .{self}, .{});
-    self.stdout_read_task = try scheduler.spawn(stdoutRead, .{self}, .{});
-    self.stderr_task = try scheduler.spawn(stderr, .{self}, .{});
+    self.watchdog_task = try scheduler.spawn(watchdog, .{self}, .{.name = "lsp:watchdog"});
+    self.stdout_write_task = try scheduler.spawn(stdoutWrite, .{self}, .{.name = "lsp:stdout"});
+    self.stdout_read_task = try scheduler.spawn(stdoutRead, .{self}, .{.name = "lsp:stdin"});
+    self.stderr_task = try scheduler.spawn(stderr, .{self}, .{.name = "lsp:stderr"});
 }
 
 pub fn db(self: *@This()) *Engine.Db {

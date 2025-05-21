@@ -107,7 +107,7 @@ pub fn open(_: *@This(), opts: OpenOptions, writer: anytype) !void {
     try rpc.send(@bitCast(id), .@"textDocument/didOpen", .{
         .textDocument = .{
             .uri = opts.uri,
-            .languageId = .{ .custom_value = opts.lang },
+            .languageId = opts.lang,
             .version = opts.version,
             .text = opts.contents,
         },
@@ -289,6 +289,7 @@ pub fn pop(self: *@This(), writer: anytype) !?Output {
                         .Warning => log.warn("{s}", .{msg.message}),
                         .Info, .Log => log.info("{s}", .{msg.message}),
                         .Debug => log.debug("{s}", .{msg.message}),
+                        else => log.warn("{s}", .{msg.message}),
                     }
                 },
                 .@"$/logTrace" => {

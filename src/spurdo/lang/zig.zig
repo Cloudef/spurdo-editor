@@ -12,6 +12,7 @@ pub const Rgb = enum(u24) {
     }
 
     pub fn initHex(hex: []const u8) !@This() {
+        @setEvalBranchQuota(10_000_0);
         return @enumFromInt(try std.fmt.parseInt(u24, hex, 16));
     }
 
