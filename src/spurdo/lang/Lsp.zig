@@ -45,10 +45,11 @@ pub fn deinit(self: *@This()) void {
 
 fn stdoutRead(self: *@This()) !void {
     defer log.debug("stdoutRead: {s}: bye", .{self.lang});
+    var retries: usize = 0;
     while (!self.exit) {
-        while (self.child == null) {
-            try coro.io.single(.timeout, .{ .ns = std.time.ns_per_s });
-        }
+        if (retries > 0) try coro.io.single(.timeout, .{ .ns = retries * std.time.ns_per_s });
+        if (self.child == null) continue;
+        defer retries += 1;
         var buf: [rpc.BufferSize]u8 = undefined;
         var len: usize = 0;
         child: while (self.child) |*child| {
@@ -70,6 +71,7 @@ fn stdoutRead(self: *@This()) !void {
                 log.err("stdoutRead: {s}: {}", .{ self.lang, err });
                 break :child;
             };
+            retries = 0;
         }
         log.warn("stdoutRead: {s}: communication with child lost", .{self.lang});
     }
@@ -77,10 +79,11 @@ fn stdoutRead(self: *@This()) !void {
 
 fn stdoutWrite(self: *@This()) !void {
     defer log.debug("stdoutWrite: {s}: bye", .{self.lang});
+    var retries: usize = 0;
     while (!self.exit) {
-        while (self.child == null) {
-            try coro.io.single(.timeout, .{ .ns = std.time.ns_per_s });
-        }
+        if (retries > 0) try coro.io.single(.timeout, .{ .ns = retries * std.time.ns_per_s });
+        if (self.child == null) continue;
+        defer retries += 1;
         if (self.child) |*child| {
             self.engine.initialize(child.stdin.?.writer()) catch continue;
         } else continue;
@@ -92,6 +95,7 @@ fn stdoutWrite(self: *@This()) !void {
                 log.err("stdoutWrite: {s}: {}", .{ self.lang, err });
                 break;
             };
+            retries = 0;
             try coro.yield(Yield.pipe);
         }
         log.warn("stdoutWrite: {s}: communication with child lost", .{self.lang});
@@ -100,10 +104,11 @@ fn stdoutWrite(self: *@This()) !void {
 
 fn stderr(self: *@This()) !void {
     defer log.debug("stderr: {s}: bye", .{self.lang});
+    var retries: usize = 0;
     while (!self.exit) {
-        while (self.child == null) {
-            try coro.io.single(.timeout, .{ .ns = std.time.ns_per_s });
-        }
+        if (retries > 0) try coro.io.single(.timeout, .{ .ns = retries * std.time.ns_per_s });
+        if (self.child == null) continue;
+        defer retries += 1;
         var logger = ztd.io.newlineLogger(4096, log.info);
         var buf: [4096]u8 = undefined;
         var len: usize = undefined;
@@ -113,6 +118,7 @@ fn stderr(self: *@This()) !void {
                 break;
             };
             _ = logger.write(buf[0..len]) catch continue;
+            retries = 0;
         }
         log.warn("stderr: {s}: communication with child lost", .{self.lang});
     }
@@ -131,6 +137,7 @@ fn cleanChild(child: *std.process.Child) void {
 fn watchdog(self: *@This()) !void {
     defer self.watchdog_task = null;
     defer log.debug("watchdog: {s}: bye", .{self.lang});
+    // TODO: stop trying to restart if failures happen very fast
     while (!self.exit) {
         while (self.child) |*child| {
             coro.io.single(.child_exit, .{ .child = child.id }) catch {};
