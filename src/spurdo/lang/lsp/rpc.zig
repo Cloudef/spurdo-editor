@@ -255,7 +255,7 @@ pub const Parser = struct {
 
         log.debug("<= {s}", .{self.bounded.constSlice()[hdr.off .. hdr.off + hdr.content_length]});
 
-        var mem: [16]u8 = undefined;
+        var mem: [256]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&mem);
         @setEvalBranchQuota(5_000);
         var res = std.json.parseFromSliceLeaky(RpcHeader, fba.allocator(), self.bounded.constSlice()[hdr.off .. hdr.off + hdr.content_length], .{
